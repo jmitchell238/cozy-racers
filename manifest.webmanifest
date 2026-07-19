@@ -1,0 +1,26 @@
+{
+  "name": "Cozy Racers",
+  "short_name": "Racers",
+  "description": "Steer a cute kart down a sunny meadow road. Collect stars with soft friends — zero fail, ages 4–6.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2e5a3c",
+  "theme_color": "#66BB6A",
+  "categories": ["games", "kids", "entertainment"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

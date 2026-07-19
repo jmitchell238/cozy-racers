@@ -63,6 +63,7 @@ function loadGame(opts = {}) {
     'js/save.js',
     'js/audio.js',
     'js/particles.js',
+    'js/sprites.js',
     'js/game.js',
   ];
   const code = files
@@ -73,9 +74,11 @@ function loadGame(opts = {}) {
     globalThis.__TEST__ = {
       GAME_VERSION, GAME_NAME, W, H, MODES, MODE_ORDER, CAR_PALETTES, FRIEND_NAMES,
       ROAD_W, ROAD_LEFT, ROAD_RIGHT, ROAD_CENTER, PLAYER_Y, CAR_R, STAR_R, HINT_AFTER,
+      COUNTDOWN_BEAT, COUNTDOWN_BEATS,
       SAVE_KEY, PRAISE,
       clamp, lerp, shuffle, shuffleWith, currentMode, roadBounds, isOffRoad,
       softCollide, circleHit, worldToScreenY, screenToWorldY, raceProgress, hasFinished,
+      countdownLabel, isCountdownDone,
       spawnFriends, spawnPickups, tryCollectPickup, steerFromPointer, stepSteer,
       enterPlay, enterMenu, enterWin, updatePlay, collectAt, setSteerX, clearSteer,
       state: () => state,
@@ -90,6 +93,9 @@ function loadGame(opts = {}) {
       steerTarget: () => steerTarget,
       playerVx: () => playerVx,
       speed: () => speed,
+      racing: () => racing,
+      setRacing: (v) => { racing = !!v; if (v) { speed = baseSpeed; countdownT = COUNTDOWN_BEAT * COUNTDOWN_BEATS; } },
+      countdownT: () => countdownT,
       friends: () => friends,
       pickups: () => pickups,
       showHint: () => showHint,
@@ -98,6 +104,7 @@ function loadGame(opts = {}) {
       setMode, setMuted, setReducedMotion, setCarIndex,
       recordStar, recordRace,
       loadSave, persistSave, defaultSave,
+      carSpriteKey,
     };
   `;
 
@@ -122,6 +129,16 @@ function loadGame(opts = {}) {
     },
     window: {},
     globalThis: {},
+    Image: function Image() {
+      this.complete = false;
+      this.naturalWidth = 0;
+      this.onload = null;
+      this.onerror = null;
+      Object.defineProperty(this, 'src', {
+        set() { /* no network in tests */ },
+        get() { return ''; },
+      });
+    },
     requestAnimationFrame: (fn) => setTimeout(() => fn(Date.now()), 0),
     speechSynthesis: undefined,
     SpeechSynthesisUtterance: undefined,
@@ -138,14 +155,18 @@ section('PWA shell files');
 {
   for (const f of [
     'index.html', 'css/style.css', 'js/config.js', 'js/save.js', 'js/audio.js',
-    'js/particles.js', 'js/game.js', 'js/main.js',
+    'js/particles.js', 'js/sprites.js', 'js/game.js', 'js/main.js',
     'manifest.webmanifest', 'sw.js', 'README.md',
+    'assets/CREDITS.md',
   ]) {
     assert(exists(f), `exists ${f}`);
   }
   for (const f of [
     'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
     'apple-touch-icon.png', 'art/cover.jpg',
+    'assets/cars/car_red_1.png', 'assets/cars/car_blue_1.png',
+    'assets/tiles/road_strip.png', 'assets/tiles/grass.png',
+    'assets/objects/tree_small.png',
   ]) {
     assert(exists(f), `exists ${f}`);
   }
@@ -170,7 +191,7 @@ section('script order + manifest');
 {
   const html = read('index.html');
   let last = -1;
-  for (const s of ['config.js', 'save.js', 'audio.js', 'particles.js', 'game.js', 'main.js']) {
+  for (const s of ['config.js', 'save.js', 'audio.js', 'particles.js', 'sprites.js', 'game.js', 'main.js']) {
     const i = html.indexOf(s);
     assert(i > last, `order ${s}`);
     last = i;
@@ -354,10 +375,37 @@ section('enterPlay + modes');
 }
 
 // =====================================================================
+section('countdown freezes motion then starts');
+{
+  const T = loadGame();
+  T.enterPlay('picnic');
+  assert(T.racing() === false, 'not racing yet');
+  assertEq(T.countdownLabel(0), '3', 'starts at 3');
+  assertEq(T.countdownLabel(T.COUNTDOWN_BEAT * 0.5), '3', 'still 3 mid-beat');
+  assertEq(T.countdownLabel(T.COUNTDOWN_BEAT), '2', 'beat 2');
+  assertEq(T.countdownLabel(T.COUNTDOWN_BEAT * 2), '1', 'beat 1');
+  assertEq(T.countdownLabel(T.COUNTDOWN_BEAT * 3), 'GO!', 'GO beat');
+  assertEq(T.countdownLabel(T.COUNTDOWN_BEAT * 4), null, 'done');
+  assert(T.isCountdownDone(T.COUNTDOWN_BEAT * 4) === true, 'isCountdownDone');
+
+  const d0 = T.distance();
+  for (let i = 0; i < 5; i++) T.updatePlay(0.05);
+  assertEq(T.distance(), d0, 'no distance during countdown');
+  assert(T.racing() === false, 'still countdown');
+
+  // Finish countdown
+  const need = T.COUNTDOWN_BEAT * T.COUNTDOWN_BEATS + 0.05;
+  T.updatePlay(need);
+  assert(T.racing() === true, 'racing after countdown');
+  assert(T.speed() > 0, 'speed after go');
+}
+
+// =====================================================================
 section('updatePlay advances distance + finish');
 {
   const T = loadGame();
   T.enterPlay('picnic');
+  T.setRacing(true);
   const d0 = T.distance();
   for (let i = 0; i < 10; i++) T.updatePlay(0.05);
   assert(T.distance() > d0, 'distance advances');
@@ -373,6 +421,7 @@ section('steering input');
 {
   const T = loadGame();
   T.enterPlay('picnic');
+  T.setRacing(true);
   T.setSteerX(T.ROAD_CENTER + 60);
   assert(T.steerTarget() > T.ROAD_CENTER, 'steer target right');
   for (let i = 0; i < 20; i++) T.updatePlay(0.016);
@@ -385,6 +434,7 @@ section('collect stars via update');
 {
   const T = loadGame();
   T.enterPlay('picnic');
+  T.setRacing(true);
   // Place a star on the player
   const p = T.pickups()[0];
   p.worldY = T.distance();
@@ -403,10 +453,21 @@ section('hint after idle');
 {
   const T = loadGame();
   T.enterPlay('picnic');
+  T.setRacing(true);
   assert(T.showHint() === false, 'no hint initially');
   T.setHintTimer(T.HINT_AFTER + 0.1);
   T.updatePlay(0.016);
   assert(T.showHint() === true, 'hint after idle');
+}
+
+// =====================================================================
+section('car sprite keys + kenney assets');
+{
+  const T = loadGame();
+  assertEq(T.carSpriteKey(0), 'car_red_1', 'berry → red');
+  assertEq(T.carSpriteKey(1), 'car_blue_1', 'sky → blue');
+  assert(T.CAR_PALETTES.every(p => p.color && p.style), 'palettes have sprite fields');
+  assert(exists('assets/LICENSE-Kenney.txt') || exists('assets/CREDITS.md'), 'kenney credit');
 }
 
 // =====================================================================

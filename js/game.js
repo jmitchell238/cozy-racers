@@ -43,6 +43,13 @@ let engineTimer = 0;
 let steering = false;
 let lastSteerX = ROAD_CENTER;
 
+/** False until countdown finishes — car sits still, can still steer */
+let racing = false;
+/** Elapsed seconds in the pre-race countdown */
+let countdownT = 0;
+/** Last announced beat index (0=3, 1=2, 2=1, 3=GO) */
+let countdownBeat = -1;
+
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-tested)
 // ---------------------------------------------------------------------------
@@ -163,6 +170,34 @@ function hasFinished(dist, total) {
 }
 
 /**
+ * Countdown label for elapsed time, or null when race should start.
+ * Beats: 3 → 2 → 1 → GO! then null (racing).
+ * @param {number} t - seconds since race enter
+ * @param {number} [beatLen=COUNTDOWN_BEAT]
+ * @param {number} [beats=COUNTDOWN_BEATS]
+ * @returns {string|null}
+ */
+function countdownLabel(t, beatLen, beats) {
+  const bl = beatLen != null ? beatLen : COUNTDOWN_BEAT;
+  const n = beats != null ? beats : COUNTDOWN_BEATS;
+  if (t < 0) return '3';
+  const beat = Math.floor(t / bl);
+  if (beat >= n) return null;
+  if (beat === n - 1) return 'GO!';
+  return String(n - 1 - beat);
+}
+
+/**
+ * Is the race rolling (past countdown)?
+ * @param {number} t
+ * @param {number} [beatLen]
+ * @param {number} [beats]
+ */
+function isCountdownDone(t, beatLen, beats) {
+  return countdownLabel(t, beatLen, beats) === null;
+}
+
+/**
  * Build friend racers for a mode.
  * @param {number} count
  * @param {() => number} [rng]
@@ -179,11 +214,14 @@ function spawnFriends(count, rng) {
   const out = [];
   for (let i = 0; i < n; i++) {
     const t = r();
+    const pal = palsIdx[i % palsIdx.length] | 0;
+    const style = 1 + ((i + Math.floor(r() * 3)) % 3);
     out.push({
       worldY: 180 + i * 220 + r() * 80,
       x: lerp(bounds.min, bounds.max, t),
       vx: 0,
-      palette: palsIdx[i % palsIdx.length] | 0,
+      palette: pal,
+      style,
       name: pals[i % pals.length],
       bob: r() * Math.PI * 2,
       speedMul: 0.85 + r() * 0.25,
@@ -278,7 +316,11 @@ function enterPlay(forceMode) {
   raceDistance = m.distance | 0;
   starGoal = m.starGoal | 0;
   baseSpeed = m.speed || 150;
-  speed = baseSpeed;
+  // Hold still until countdown completes
+  speed = 0;
+  racing = false;
+  countdownT = 0;
+  countdownBeat = -1;
   distance = 0;
   sessionStars = 0;
   playerX = ROAD_CENTER;
@@ -300,10 +342,6 @@ function enterPlay(forceMode) {
   friends = spawnFriends(m.friends | 0);
   pickups = spawnPickups(span, starCount);
   clearParticles();
-
-  setTimeout(() => {
-    if (state === 'play') speakCheer('Ready, set, go!');
-  }, 280);
 }
 
 function enterWin() {
@@ -370,6 +408,37 @@ function updatePlay(dt) {
 
   skyPhase += dt;
   playerBob += dt * 10;
+
+  // --- Pre-race countdown: steer OK, no forward motion ---
+  if (!racing) {
+    countdownT += dt;
+    const label = countdownLabel(countdownT);
+    const beat = Math.floor(countdownT / COUNTDOWN_BEAT);
+    if (beat !== countdownBeat && beat < COUNTDOWN_BEATS) {
+      countdownBeat = beat;
+      const isGo = beat === COUNTDOWN_BEATS - 1;
+      sfxCountdown(isGo);
+      if (isGo) speakCheer('Go!');
+      else if (beat === 0) speakCheer('Ready');
+    }
+    // Allow lining up during countdown
+    if (!steering) {
+      steerTarget = lerp(steerTarget, ROAD_CENTER, 1 - Math.pow(0.15, dt));
+    }
+    const stepped = stepSteer(playerX, playerVx, steerTarget, dt);
+    playerX = stepped.x;
+    playerVx = stepped.vx;
+
+    if (label === null) {
+      racing = true;
+      speed = baseSpeed;
+      hintTimer = 0;
+      showHint = false;
+    }
+    updateParticles(dt);
+    return;
+  }
+
   engineTimer += dt;
   hintTimer += dt;
 
@@ -472,7 +541,7 @@ function updatePlay(dt) {
 
   if (shake > 0) shake = Math.max(0, shake - dt);
 
-  // Hint: nudge to touch after idle
+  // Hint: nudge to touch after idle (only once racing)
   if (hintTimer > HINT_AFTER && !steering) showHint = true;
 
   // Finish line
@@ -529,64 +598,71 @@ function drawSky(ctx) {
 }
 
 function drawMeadowSides(ctx) {
-  // Left / right grass
-  ctx.fillStyle = '#81C784';
-  ctx.fillRect(0, 0, ROAD_LEFT - 2, H);
-  ctx.fillRect(ROAD_RIGHT + 2, 0, W - ROAD_RIGHT, H);
+  const scroll = distance % 128;
+  const grassImg = (typeof getSprite === 'function') ? getSprite('grass') : null;
+  const grass2 = (typeof getSprite === 'function') ? getSprite('grass2') : null;
 
-  // Grass blades / flowers scrolling with distance
-  const scroll = distance % 40;
-  for (let y = -40; y < H + 40; y += 28) {
-    const yy = y + scroll;
-    // Left flowers
-    const fx = 18 + ((Math.floor((distance + y) / 28) * 17) % 40);
-    ctx.fillStyle = (Math.floor((distance + y) / 28) % 3 === 0) ? '#F48FB1' : '#FFD54F';
-    ctx.beginPath();
-    ctx.arc(fx, yy, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    // Right
-    const fx2 = W - 18 - ((Math.floor((distance + y) / 28) * 13) % 36);
-    ctx.fillStyle = (Math.floor((distance + y) / 28) % 2 === 0) ? '#CE93D8' : '#FFF176';
-    ctx.beginPath();
-    ctx.arc(fx2, yy, 3.2, 0, Math.PI * 2);
-    ctx.fill();
+  if (grassImg && grassImg.naturalWidth) {
+    for (let y = -128 + scroll; y < H + 128; y += 128) {
+      for (let x = 0; x < ROAD_LEFT; x += 128) {
+        ctx.drawImage(grassImg, x, y, 128, 128);
+      }
+      for (let x = ROAD_RIGHT; x < W; x += 128) {
+        const g = (grass2 && ((x + y) % 256 < 128)) ? grass2 : grassImg;
+        ctx.drawImage(g, x, y, 128, 128);
+      }
+    }
+  } else {
+    ctx.fillStyle = '#7dce6a';
+    ctx.fillRect(0, 0, ROAD_LEFT, H);
+    ctx.fillRect(ROAD_RIGHT, 0, W - ROAD_RIGHT, H);
   }
 
-  // Soft bushes
-  ctx.fillStyle = '#66BB6A';
-  for (let i = 0; i < 6; i++) {
-    const yy = ((i * 130 + distance * 0.4) % (H + 80)) - 40;
-    ctx.beginPath();
-    ctx.ellipse(22, yy, 18, 12, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(W - 22, yy + 40, 16, 11, 0, 0, Math.PI * 2);
-    ctx.fill();
+  // Scrolling Kenney trees on the shoulders
+  for (let i = 0; i < 5; i++) {
+    const yy = ((i * 160 + distance * 0.55) % (H + 120)) - 60;
+    const key = i % 2 === 0 ? 'tree_large' : 'tree_small';
+    const sc = i % 2 === 0 ? 0.55 : 0.48;
+    if (typeof drawSprite === 'function') {
+      drawSprite(ctx, key, 36, yy, { scale: sc });
+      drawSprite(ctx, key, W - 36, yy + 50, { scale: sc * 0.95 });
+    }
   }
 }
 
 function drawRoad(ctx) {
-  // Road body
-  ctx.fillStyle = '#8D6E63';
-  ctx.fillRect(ROAD_LEFT, 0, ROAD_W, H);
+  const strip = (typeof getSprite === 'function') ? getSprite('road_strip') : null;
+  const scroll = distance % 128;
 
-  // Soft edge lines
-  ctx.strokeStyle = '#FFF8E1';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(ROAD_LEFT + 3, 0);
-  ctx.lineTo(ROAD_LEFT + 3, H);
-  ctx.moveTo(ROAD_RIGHT - 3, 0);
-  ctx.lineTo(ROAD_RIGHT - 3, H);
-  ctx.stroke();
+  if (strip && strip.naturalWidth) {
+    // Tile Kenney asphalt strip (left curb + center + right curb)
+    for (let y = -128 + scroll; y < H + 128; y += 128) {
+      ctx.drawImage(strip, ROAD_LEFT, y, ROAD_W, 128);
+    }
+  } else {
+    // Fallback vector road
+    ctx.fillStyle = '#9aaebb';
+    ctx.fillRect(ROAD_LEFT, 0, ROAD_W, H);
+    // Curb stripes
+    const period = 36;
+    const off = distance % period;
+    for (let y = -period + off; y < H + period; y += period) {
+      ctx.fillStyle = '#ff8a3d';
+      ctx.fillRect(ROAD_LEFT, y, 14, period * 0.5);
+      ctx.fillRect(ROAD_RIGHT - 14, y, 14, period * 0.5);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(ROAD_LEFT, y + period * 0.5, 14, period * 0.5);
+      ctx.fillRect(ROAD_RIGHT - 14, y + period * 0.5, 14, period * 0.5);
+    }
+  }
 
-  // Dashed center
+  // Soft dashed center line
   const dashH = 28;
   const gap = 22;
   const period = dashH + gap;
   const offset = distance % period;
-  ctx.strokeStyle = 'rgba(255,248,225,0.85)';
-  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   for (let y = -period + offset; y < H + period; y += period) {
     ctx.beginPath();
@@ -616,96 +692,106 @@ function drawRoad(ctx) {
 }
 
 /**
- * Draw a cute rounded kart facing up the road.
+ * Draw a Kenney top-down car (fallback to vector if sprites missing).
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} x
  * @param {number} y
  * @param {number} paletteIndex
- * @param {{ scale?: number, bob?: number, name?: string, isPlayer?: boolean }} [opts]
+ * @param {{ scale?: number, bob?: number, name?: string, isPlayer?: boolean, style?: number }} [opts]
  */
 function drawCar(ctx, x, y, paletteIndex, opts = {}) {
-  const pal = CAR_PALETTES[paletteIndex % CAR_PALETTES.length];
+  const pal = CAR_PALETTES[paletteIndex % CAR_PALETTES.length] || CAR_PALETTES[0];
   const scale = opts.scale || 1;
   const bob = opts.bob || 0;
+  const dy = Math.sin(bob) * 1.5 * scale;
+  const style = opts.style != null ? opts.style : (pal.style || 1);
+  const color = pal.color || 'red';
+  const key = 'car_' + color + '_' + style;
   const w = PLAYER_W * scale;
   const h = PLAYER_H * scale;
-  const dy = Math.sin(bob) * 2 * scale;
+  const img = (typeof getSprite === 'function') ? getSprite(key) : null;
 
+  // Soft shadow
   ctx.save();
-  ctx.translate(x, y + dy);
-
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
   ctx.beginPath();
-  ctx.ellipse(0, h * 0.42, w * 0.42, 7 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + dy + h * 0.38, w * 0.38, 8 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
-  // Body
-  const bodyGrad = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
-  bodyGrad.addColorStop(0, pal.body);
-  bodyGrad.addColorStop(1, pal.dark);
-  ctx.fillStyle = bodyGrad;
-  roundRect(ctx, -w / 2, -h / 2, w, h * 0.85, 12 * scale);
-  ctx.fill();
-
-  // Cabin / windshield
-  ctx.fillStyle = 'rgba(227,242,253,0.95)';
-  roundRect(ctx, -w * 0.28, -h * 0.38, w * 0.56, h * 0.32, 8 * scale);
-  ctx.fill();
-
-  // Accent stripe
-  ctx.fillStyle = pal.accent;
-  roundRect(ctx, -w * 0.12, -h * 0.08, w * 0.24, h * 0.35, 4 * scale);
-  ctx.fill();
-
-  // Wheels
-  ctx.fillStyle = '#37474F';
-  const wr = 7 * scale;
-  ctx.beginPath();
-  ctx.arc(-w * 0.38, h * 0.22, wr, 0, Math.PI * 2);
-  ctx.arc(w * 0.38, h * 0.22, wr, 0, Math.PI * 2);
-  ctx.arc(-w * 0.38, -h * 0.28, wr * 0.9, 0, Math.PI * 2);
-  ctx.arc(w * 0.38, -h * 0.28, wr * 0.9, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#90A4AE';
-  ctx.beginPath();
-  ctx.arc(-w * 0.38, h * 0.22, wr * 0.4, 0, Math.PI * 2);
-  ctx.arc(w * 0.38, h * 0.22, wr * 0.4, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Cute face on hood
-  ctx.fillStyle = '#5D4037';
-  ctx.beginPath();
-  ctx.arc(-6 * scale, h * 0.08, 2.2 * scale, 0, Math.PI * 2);
-  ctx.arc(6 * scale, h * 0.08, 2.2 * scale, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#5D4037';
-  ctx.lineWidth = 1.5 * scale;
-  ctx.beginPath();
-  ctx.arc(0, h * 0.14, 5 * scale, 0.15 * Math.PI, 0.85 * Math.PI);
-  ctx.stroke();
+  if (img && img.naturalWidth) {
+    ctx.drawImage(img, x - w / 2, y + dy - h / 2, w, h);
+  } else {
+    // Vector fallback
+    ctx.save();
+    ctx.translate(x, y + dy);
+    ctx.fillStyle = pal.body;
+    roundRect(ctx, -w / 2, -h / 2, w, h * 0.85, 12 * scale);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(227,242,253,0.95)';
+    roundRect(ctx, -w * 0.28, -h * 0.38, w * 0.56, h * 0.28, 8 * scale);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // Player halo
   if (opts.isPlayer) {
+    ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.ellipse(0, 0, w * 0.55, h * 0.52, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y + dy, w * 0.55, h * 0.48, 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
   }
 
   // Name plate for friends
   if (opts.name) {
-    ctx.font = `bold ${11 * scale}px "Segoe UI", system-ui, sans-serif`;
+    ctx.save();
+    ctx.font = `bold ${Math.round(12 * scale)}px "Segoe UI", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillText(opts.name, 1, -h * 0.52 + 1);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.strokeText(opts.name, x, y + dy - h * 0.52);
     ctx.fillStyle = '#fff';
-    ctx.fillText(opts.name, 0, -h * 0.52);
+    ctx.fillText(opts.name, x, y + dy - h * 0.52);
+    ctx.restore();
   }
+}
 
+function drawCountdown(ctx) {
+  if (racing || state !== 'play') return;
+  const label = countdownLabel(countdownT);
+  if (!label) return;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(0, 0, W, H);
+
+  const pulse = 1 + Math.sin(countdownT * 10) * 0.04;
+  const cx = W / 2;
+  const cy = H * 0.38;
+  ctx.translate(cx, cy);
+  ctx.scale(pulse, pulse);
+  ctx.font = 'bold 92px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.strokeText(label, 0, 0);
+  ctx.fillStyle = label === 'GO!' ? '#FFD54F' : '#fff';
+  ctx.fillText(label, 0, 0);
   ctx.restore();
+
+  if (label !== 'GO!') {
+    ctx.save();
+    ctx.font = '600 15px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText('Get ready… drag to line up', W / 2, H * 0.52);
+    ctx.restore();
+  }
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -843,7 +929,12 @@ function drawPlay(ctx) {
   for (const f of sorted) {
     const sy = worldToScreenY(f.worldY, distance);
     if (sy < -80 || sy > H + 80) continue;
-    drawCar(ctx, f.x, sy, f.palette, { bob: f.bob, name: f.name, scale: 0.92 });
+    drawCar(ctx, f.x, sy, f.palette, {
+      bob: f.bob,
+      name: f.name,
+      scale: 0.9,
+      style: f.style || 1,
+    });
   }
 
   // Player
@@ -854,6 +945,7 @@ function drawPlay(ctx) {
   });
 
   drawHud(ctx);
+  drawCountdown(ctx);
   drawParticles(ctx);
   ctx.restore();
 }

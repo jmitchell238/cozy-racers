@@ -19,14 +19,20 @@ Part of [Arcade Hub](https://jmitchell238.github.io/arcade-hub/).
 
 ## Features
 
+- **Countdown** (3 · 2 · 1 · GO!) before the race rolls — line up while you wait
 - **Drag** left/right (or ← → / A D) to steer
-- Auto-forward on a warm dirt road through the meadow
+- Auto-forward on Kenney asphalt through a grassy meadow
+- **Kenney Racing Pack** (CC0) cars, road tiles, trees
 - Collect **stars**, flowers, and boost balloons
 - Soft friend racers — bumps bounce gently, no knock-outs
 - Off-road only slows you; soft spring back — never a crash screen
-- Pick a kart color (Berry, Sky, Leaf, Honey, Plum, Teal)
+- Pick a kart color (Berry, Sky, Leaf, Honey, Shadow, Wave)
 - Sound mute + reduced motion
 - Installable PWA (offline after first visit)
+
+## Assets
+
+[Kenney Racing Pack](https://kenney.nl/assets/racing-pack) — **CC0** public domain. See `assets/CREDITS.md`.
 
 ## Stack
 

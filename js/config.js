@@ -1,7 +1,7 @@
 'use strict';
 
 // Cozy Racers — Keep CACHE in sw.js in sync: 'cozy-racers-' + GAME_VERSION
-const GAME_VERSION = '1.0.000';
+const GAME_VERSION = '1.1.000';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Cozy Racers';
 
@@ -27,23 +27,31 @@ const ROAD_RIGHT = ROAD_LEFT + ROAD_W;
 const ROAD_CENTER = W / 2;
 
 const PLAYER_Y = H * 0.72;
-const PLAYER_W = 44;
-const PLAYER_H = 58;
-const CAR_R = 26; // soft collision radius
+const PLAYER_W = 48;
+const PLAYER_H = 88;
+const CAR_R = 28; // soft collision radius
 
 const STAR_R = 16;
 const HINT_AFTER = 6;
 
+/** Seconds per countdown beat (3 · 2 · 1 · GO!) before the race rolls */
+const COUNTDOWN_BEAT = 0.72;
+/** Total beats including GO */
+const COUNTDOWN_BEATS = 4;
+
 const PRAISE = ['Zoom!', 'Yay!', 'Nice!', 'Star!', 'Wow!', 'Go!', 'Whee!', 'Yes!'];
 
-/** Cute car color presets for player + friends */
+/**
+ * Car color presets → Kenney Racing Pack (CC0) sprite keys.
+ * style 1–3 are different body shapes in the pack.
+ */
 const CAR_PALETTES = [
-  { body: '#EF5350', dark: '#C62828', accent: '#FFD54F', name: 'Berry' },
-  { body: '#42A5F5', dark: '#1565C0', accent: '#81D4FA', name: 'Sky' },
-  { body: '#66BB6A', dark: '#2E7D32', accent: '#C5E1A5', name: 'Leaf' },
-  { body: '#FFA726', dark: '#EF6C00', accent: '#FFE082', name: 'Honey' },
-  { body: '#AB47BC', dark: '#6A1B9A', accent: '#E1BEE7', name: 'Plum' },
-  { body: '#26C6DA', dark: '#00838F', accent: '#B2EBF2', name: 'Teal' },
+  { body: '#EF5350', dark: '#C62828', accent: '#FFD54F', name: 'Berry',  color: 'red',    style: 1 },
+  { body: '#42A5F5', dark: '#1565C0', accent: '#81D4FA', name: 'Sky',    color: 'blue',   style: 1 },
+  { body: '#66BB6A', dark: '#2E7D32', accent: '#C5E1A5', name: 'Leaf',   color: 'green',  style: 1 },
+  { body: '#FFA726', dark: '#EF6C00', accent: '#FFE082', name: 'Honey',  color: 'yellow', style: 1 },
+  { body: '#455A64', dark: '#263238', accent: '#B0BEC5', name: 'Shadow', color: 'black',  style: 1 },
+  { body: '#29B6F6', dark: '#0277BD', accent: '#B3E5FC', name: 'Wave',   color: 'blue',   style: 2 },
 ];
 
 const FRIEND_NAMES = ['Pip', 'Momo', 'Bop', 'Lulu', 'Nori', 'Zee'];

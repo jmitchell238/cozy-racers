@@ -1,5 +1,5 @@
 // Cozy Racers — bump with GAME_VERSION in js/config.js
-const CACHE = 'cozy-racers-1.0.000';
+const CACHE = 'cozy-racers-1.1.000';
 
 const ASSETS = [
   './',
@@ -9,6 +9,7 @@ const ASSETS = [
   './js/save.js',
   './js/audio.js',
   './js/particles.js',
+  './js/sprites.js',
   './js/game.js',
   './js/main.js',
   './manifest.webmanifest',
@@ -17,6 +18,17 @@ const ASSETS = [
   './icons/icon-512.png',
   './apple-touch-icon.png',
   './art/cover.jpg',
+  './assets/tiles/road_strip.png',
+  './assets/tiles/grass.png',
+  './assets/tiles/grass2.png',
+  './assets/objects/tree_small.png',
+  './assets/objects/tree_large.png',
+  './assets/cars/car_red_1.png',
+  './assets/cars/car_blue_1.png',
+  './assets/cars/car_green_1.png',
+  './assets/cars/car_yellow_1.png',
+  './assets/cars/car_black_1.png',
+  './assets/cars/car_blue_2.png',
 ];
 
 function precacheAll(cache) {

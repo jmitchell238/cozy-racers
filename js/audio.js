@@ -54,6 +54,15 @@ function sfxFinish() {
 function sfxEngineTick() {
   tone({ freq: 90, dur: 0.04, type: 'triangle', gain: 0.008, slide: 20 });
 }
+/** Countdown beep — higher pitch for the final GO */
+function sfxCountdown(isGo) {
+  if (isGo) {
+    tone({ freq: 523, dur: 0.12, type: 'sine', gain: 0.05 });
+    tone({ freq: 784, dur: 0.18, type: 'triangle', gain: 0.045, delay: 0.08 });
+  } else {
+    tone({ freq: 392, dur: 0.12, type: 'sine', gain: 0.04 });
+  }
+}
 
 function speak(text) {
   if (save.muted) return;

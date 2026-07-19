@@ -13,9 +13,11 @@ Part of [Arcade Hub](https://jmitchell238.github.io/arcade-hub/).
 | Mode | Track | Friends | Notes |
 |------|-------|---------|-------|
 | Free Cruise | Endless | 1 | Collect stars forever |
-| Picnic Path | Short | 1 | Cozy first race |
-| Meadow Dash | Medium | 2 | A little more zoom |
-| Star Circuit | Longer | 3 | More stars & friends |
+| Picnic Path | ~45s | 2 | Cozy first race — you win 1st |
+| Meadow Dash | ~60s | 2 | Medium race |
+| Star Circuit | ~90s | 3 | Longer race, more stars |
+
+Friend AI is intentionally slower so kids stay in **1st place**.
 
 ## Features
 

@@ -1,7 +1,7 @@
 'use strict';
 
 // Cozy Racers — Keep CACHE in sw.js in sync: 'cozy-racers-' + GAME_VERSION
-const GAME_VERSION = '1.1.000';
+const GAME_VERSION = '1.2.000';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Cozy Racers';
 
@@ -12,14 +12,22 @@ const SAVE_KEY = 'cozy-racers-save-v1';
 /**
  * Modes: race distance (world units), friend count, base speed, star goal.
  * Free = endless (distance 0, starGoal 0).
+ * Distances tuned for ~40–90s races at listed speeds so kids feel a real race.
+ * Friend AI is intentionally slower so the player can always take 1st.
  */
 const MODES = {
-  free:    { id: 'free',    name: 'Free Cruise',  tagline: 'forever · stars', distance: 0,    friends: 1, speed: 160, starGoal: 0  },
-  picnic:  { id: 'picnic',  name: 'Picnic Path',  tagline: 'short · cozy',    distance: 1400, friends: 1, speed: 150, starGoal: 8  },
-  meadow:  { id: 'meadow',  name: 'Meadow Dash',  tagline: 'medium',         distance: 2200, friends: 2, speed: 175, starGoal: 12 },
-  circuit: { id: 'circuit', name: 'Star Circuit', tagline: 'longer · stars',  distance: 3200, friends: 3, speed: 195, starGoal: 18 },
+  free:    { id: 'free',    name: 'Free Cruise',  tagline: 'forever · stars', distance: 0,     friends: 1, speed: 165, starGoal: 0  },
+  picnic:  { id: 'picnic',  name: 'Picnic Path',  tagline: 'cozy race',       distance: 7200,  friends: 2, speed: 160, starGoal: 14 },
+  meadow:  { id: 'meadow',  name: 'Meadow Dash',  tagline: 'medium race',     distance: 11000, friends: 2, speed: 170, starGoal: 20 },
+  circuit: { id: 'circuit', name: 'Star Circuit', tagline: 'long race',       distance: 16000, friends: 3, speed: 180, starGoal: 28 },
 };
 const MODE_ORDER = ['free', 'picnic', 'meadow', 'circuit'];
+
+/** Friends cruise slower than the player so kids stay in the lead */
+const FRIEND_SPEED_MIN = 0.52;
+const FRIEND_SPEED_MAX = 0.72;
+/** Soft cap: friends never pull more than this far ahead of the player */
+const FRIEND_LEAD_CAP = 40;
 
 const ROAD_W = 210;
 const ROAD_LEFT = (W - ROAD_W) / 2;

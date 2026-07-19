@@ -29,7 +29,7 @@
 
         <div class="stats">
           <div><span class="lbl">Stars</span><strong id="statStars">0</strong></div>
-          <div><span class="lbl">Races</span><strong id="statRaces">0</strong></div>
+          <div><span class="lbl">Wins</span><strong id="statWins">0</strong></div>
         </div>
 
         <button id="btnPlay" class="primary" type="button">▶  Race</button>
@@ -62,8 +62,9 @@
             <li><b>Drag</b> left and right (or use ← → / A D) to steer your kart.</li>
             <li>Collect <b>stars</b>, flowers, and boost balloons on the road.</li>
             <li>Friends race with you — soft bumps only, <b>never a fail screen</b>.</li>
+            <li>Stay in the lead for <b>1st place</b> — friends cheer when you win!</li>
             <li>Drift off the road? You slow gently and ease back — no crash outs.</li>
-            <li>Reach the checkered <b>finish</b> for a big celebration!</li>
+            <li>Cross the checkered <b>finish</b> for a big “You win!” celebration.</li>
           </ol>
         </div>
 
@@ -75,12 +76,12 @@
 
     <div class="screen hidden" data-screen="win" id="screenWin">
       <div class="menu-card">
-        <h2>You finished!</h2>
-        <p class="win-banner">🏁 Cozy victory</p>
-        <p class="tagline">Everyone is cheering for you.</p>
+        <h2 id="winTitle">You win!</h2>
+        <p class="win-banner" id="winBanner">🏆 1st place!</p>
+        <p class="tagline">Your friends are cheering for you.</p>
         <div class="stats">
-          <div><span class="lbl">This race</span><strong id="winStars">0</strong></div>
-          <div><span class="lbl">All stars</span><strong id="winAll">0</strong></div>
+          <div><span class="lbl">Place</span><strong id="winPlace">1st</strong></div>
+          <div><span class="lbl">Stars</span><strong id="winStars">0</strong></div>
         </div>
         <button id="btnAgain" class="primary" type="button">▶  Race again</button>
         <button id="btnMenuWin" class="secondary" type="button">Main menu</button>

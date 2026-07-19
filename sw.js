@@ -1,5 +1,5 @@
 // Cozy Racers — bump with GAME_VERSION in js/config.js
-const CACHE = 'cozy-racers-1.1.000';
+const CACHE = 'cozy-racers-1.2.000';
 
 const ASSETS = [
   './',

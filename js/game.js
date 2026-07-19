@@ -12,6 +12,10 @@ let raceDistance = 0;
 let sessionStars = 0;
 /** Target stars for modes that care (soft goal for HUD; finish is distance-based) */
 let starGoal = 0;
+/** Finishing place (1 = first). Kid modes always aim for 1st. */
+let sessionPlace = 1;
+/** Wins recorded this device (1st place finishes) */
+let sessionWins = 0;
 
 /** Player horizontal position (screen x) */
 let playerX = ROAD_CENTER;
@@ -198,7 +202,19 @@ function isCountdownDone(t, beatLen, beats) {
 }
 
 /**
+ * Friend speed multiplier — always slower than the player so kids win.
+ * @param {() => number} [rng]
+ */
+function friendSpeedMul(rng) {
+  const r = rng || Math.random;
+  const lo = typeof FRIEND_SPEED_MIN === 'number' ? FRIEND_SPEED_MIN : 0.52;
+  const hi = typeof FRIEND_SPEED_MAX === 'number' ? FRIEND_SPEED_MAX : 0.72;
+  return lo + r() * Math.max(0, hi - lo);
+}
+
+/**
  * Build friend racers for a mode.
+ * Spawn beside / slightly behind the player so they don't start in the lead.
  * @param {number} count
  * @param {() => number} [rng]
  */
@@ -216,18 +232,50 @@ function spawnFriends(count, rng) {
     const t = r();
     const pal = palsIdx[i % palsIdx.length] | 0;
     const style = 1 + ((i + Math.floor(r() * 3)) % 3);
+    // Start near the pack: a little behind or barely ahead (then fall back)
+    const startY = -40 - i * 90 - r() * 50;
     out.push({
-      worldY: 180 + i * 220 + r() * 80,
+      worldY: startY,
       x: lerp(bounds.min, bounds.max, t),
       vx: 0,
       palette: pal,
       style,
       name: pals[i % pals.length],
       bob: r() * Math.PI * 2,
-      speedMul: 0.85 + r() * 0.25,
+      speedMul: friendSpeedMul(r),
     });
   }
   return out;
+}
+
+/**
+ * Pure: race place for the player (1 = first).
+ * Anyone with higher worldY than the player is ahead.
+ * @param {number} playerDist
+ * @param {{ worldY: number }[]} friendList
+ */
+function computePlace(playerDist, friendList) {
+  let place = 1;
+  const list = friendList || [];
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].worldY > playerDist + 0.5) place++;
+  }
+  return place;
+}
+
+/**
+ * Ordinal label for place: 1 → "1st", 2 → "2nd", …
+ * @param {number} place
+ */
+function placeLabel(place) {
+  const p = Math.max(1, place | 0);
+  const mod100 = p % 100;
+  if (mod100 >= 11 && mod100 <= 13) return p + 'th';
+  const mod10 = p % 10;
+  if (mod10 === 1) return p + 'st';
+  if (mod10 === 2) return p + 'nd';
+  if (mod10 === 3) return p + 'rd';
+  return p + 'th';
 }
 
 /**
@@ -341,6 +389,7 @@ function enterPlay(forceMode) {
     : 24;
   friends = spawnFriends(m.friends | 0);
   pickups = spawnPickups(span, starCount);
+  sessionPlace = 1;
   clearParticles();
 }
 
@@ -348,12 +397,18 @@ function enterWin() {
   state = 'win';
   winFlash = 1.6;
   steering = false;
+  // Final place at the line — soft AI keeps this at 1st for kids
+  sessionPlace = computePlace(distance, friends);
+  // Kid-safe: never show worse than 1st on a completed race finish
+  if (sessionPlace > 1) sessionPlace = 1;
   sfxFinish();
   spawnBurst(W / 2, H * 0.35, '#FFD54F', 30);
   spawnBurst(W / 2, H * 0.4, '#EF5350', 16);
-  spawnPraise(W / 2, H * 0.28, 'Finish!');
+  spawnPraise(W / 2, H * 0.22, placeLabel(sessionPlace) + '!');
+  spawnPraise(W / 2, H * 0.32, 'You win!');
   recordRace();
-  speakCheer('You finished! Great race!');
+  if (sessionPlace === 1) recordWin();
+  speakCheer('You win! First place!');
 }
 
 // ---------------------------------------------------------------------------
@@ -471,12 +526,25 @@ function updatePlay(dt) {
     spawnTrail(playerX, PLAYER_Y + 24, 'rgba(255,255,255,0.35)');
   }
 
-  // Friends AI — wander softly on road, match race pace
+  // Friends AI — slower than player, never steal the lead for long
   const b = roadBounds(22);
+  const leadCap = typeof FRIEND_LEAD_CAP === 'number' ? FRIEND_LEAD_CAP : 40;
   for (const f of friends) {
     f.bob += dt * 8;
-    // Move forward relative to track (their worldY increases)
-    f.worldY += speed * f.speedMul * 0.92 * dt;
+    // Base cruise: always under player pace
+    let mul = f.speedMul;
+    // If somehow ahead, ease off so the kid reclaims 1st
+    if (f.worldY > distance - 10) mul *= 0.55;
+    if (f.worldY > distance + leadCap * 0.5) mul *= 0.35;
+    f.worldY += speed * mul * dt;
+    // Hard soft-cap: cannot stay more than leadCap ahead of player
+    if (f.worldY > distance + leadCap) {
+      f.worldY = distance + leadCap * 0.6;
+    }
+    // Near the finish, peel back so the player crosses first
+    if (raceDistance > 0 && f.worldY > raceDistance - 180) {
+      f.worldY = Math.min(f.worldY, Math.min(distance - 20, raceDistance - 120));
+    }
     // Gentle lateral wander
     f.vx += (Math.sin(f.bob * 0.35 + f.worldY * 0.01) * 40 - f.vx) * dt * 2;
     f.x += f.vx * dt;
@@ -496,6 +564,7 @@ function updatePlay(dt) {
       }
     }
   }
+  sessionPlace = computePlace(distance, friends);
 
   // Friend vs friend soft separation
   for (let i = 0; i < friends.length; i++) {
@@ -868,30 +937,37 @@ function drawHud(ctx) {
   // Top bar
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  roundRect(ctx, 56, 10, W - 112, 52, 14);
+  roundRect(ctx, 56, 10, W - 112, 56, 14);
   ctx.fill();
 
   ctx.fillStyle = '#FFD54F';
-  ctx.font = 'bold 18px "Segoe UI", system-ui, sans-serif';
+  ctx.font = 'bold 17px "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText('★ ' + sessionStars, 72, 36);
+  ctx.fillText('★ ' + sessionStars, 68, 28);
 
   if (raceDistance > 0) {
+    // Place badge — big confidence for kids
+    const place = racing ? sessionPlace : 1;
+    ctx.fillStyle = place === 1 ? '#FFD54F' : '#E8F5E9';
+    ctx.font = 'bold 16px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(placeLabel(place), W - 68, 28);
+
     const prog = raceProgress(distance, raceDistance);
-    const barX = 150;
-    const barW = W - 220;
+    const barX = 68;
+    const barW = W - 136;
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    roundRect(ctx, barX, 28, barW, 14, 7);
+    roundRect(ctx, barX, 40, barW, 12, 6);
     ctx.fill();
     ctx.fillStyle = '#81C784';
-    roundRect(ctx, barX, 28, Math.max(8, barW * prog), 14, 7);
+    roundRect(ctx, barX, 40, Math.max(8, barW * prog), 12, 6);
     ctx.fill();
   } else {
     ctx.fillStyle = '#E8F5E9';
     ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Free cruise', W / 2 + 20, 36);
+    ctx.fillText('Free cruise', W / 2, 42);
   }
   ctx.restore();
 
@@ -979,30 +1055,34 @@ function drawWinScene(ctx) {
   drawSky(ctx);
   drawMeadowSides(ctx);
   drawRoad(ctx);
-  drawCar(ctx, ROAD_CENTER, H * 0.5, playerPalette, {
+  // Winner on the podium (player up front)
+  drawCar(ctx, ROAD_CENTER, H * 0.48, playerPalette, {
     bob: skyPhase * 8,
     isPlayer: true,
-    scale: 1.2,
+    scale: 1.25,
   });
-  // Friends cheer
+  // Friends cheer from the sides (behind)
   friends.slice(0, 3).forEach((f, i) => {
-    drawCar(ctx, 70 + i * 120, H * 0.68, f.palette, {
+    const side = i % 2 === 0 ? -1 : 1;
+    const slot = Math.floor(i / 2) + 1;
+    drawCar(ctx, ROAD_CENTER + side * (70 + slot * 20), H * 0.68, f.palette, {
       bob: skyPhase * 6 + i,
       name: f.name,
-      scale: 0.8,
+      scale: 0.78,
+      style: f.style || 1,
     });
   });
   drawParticles(ctx);
 
-  // Stars badge
+  // Big 1st place badge on canvas backdrop
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  roundRect(ctx, W / 2 - 70, 90, 140, 40, 12);
+  roundRect(ctx, W / 2 - 90, 72, 180, 44, 14);
   ctx.fill();
   ctx.fillStyle = '#FFD54F';
-  ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';
+  ctx.font = 'bold 22px "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('★ ' + sessionStars + ' stars', W / 2, 110);
+  ctx.fillText('🏆 ' + placeLabel(sessionPlace || 1) + '  ·  ★' + sessionStars, W / 2, 94);
   ctx.restore();
 }

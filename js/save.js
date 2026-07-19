@@ -5,6 +5,7 @@ const defaultSave = () => ({
   reducedMotion: false,
   stars: 0,
   races: 0,
+  wins: 0,
   mode: 'picnic',
   carIndex: 0,
 });
@@ -34,6 +35,11 @@ function recordStar(n = 1) {
 
 function recordRace() {
   save.races = (save.races | 0) + 1;
+  persistSave();
+}
+
+function recordWin() {
+  save.wins = (save.wins | 0) + 1;
   persistSave();
 }
 

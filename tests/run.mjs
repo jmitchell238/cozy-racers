@@ -79,6 +79,7 @@ function loadGame(opts = {}) {
       clamp, lerp, shuffle, shuffleWith, currentMode, roadBounds, isOffRoad,
       softCollide, circleHit, worldToScreenY, screenToWorldY, raceProgress, hasFinished,
       countdownLabel, isCountdownDone,
+      friendSpeedMul, computePlace, placeLabel,
       spawnFriends, spawnPickups, tryCollectPickup, steerFromPointer, stepSteer,
       enterPlay, enterMenu, enterWin, updatePlay, collectAt, setSteerX, clearSteer,
       state: () => state,
@@ -88,6 +89,9 @@ function loadGame(opts = {}) {
       raceDistance: () => raceDistance,
       sessionStars: () => sessionStars,
       setSessionStars: (n) => { sessionStars = n; },
+      sessionPlace: () => sessionPlace,
+      setSessionPlace: (n) => { sessionPlace = n; },
+      FRIEND_SPEED_MIN, FRIEND_SPEED_MAX,
       playerX: () => playerX,
       setPlayerX: (x) => { playerX = x; },
       steerTarget: () => steerTarget,
@@ -102,7 +106,7 @@ function loadGame(opts = {}) {
       setHintTimer: (t) => { hintTimer = t; },
       save,
       setMode, setMuted, setReducedMotion, setCarIndex,
-      recordStar, recordRace,
+      recordStar, recordRace, recordWin,
       loadSave, persistSave, defaultSave,
       carSpriteKey,
     };
@@ -215,13 +219,18 @@ section('config integrity');
   assert(T.MODE_ORDER.every(id => T.MODES[id]), 'MODE_ORDER keys valid');
   assertEq(T.MODES.free.distance, 0, 'free endless');
   assertEq(T.MODES.free.starGoal, 0, 'free no star goal');
-  assert(T.MODES.picnic.distance > 0, 'picnic has distance');
+  assert(T.MODES.picnic.distance >= 6000, 'picnic long enough (~40s+)');
   assert(T.MODES.meadow.distance > T.MODES.picnic.distance, 'meadow longer');
   assert(T.MODES.circuit.distance > T.MODES.meadow.distance, 'circuit longest');
+  // Approx duration at mode speed should be kid-friendly length
+  const picnicSecs = T.MODES.picnic.distance / T.MODES.picnic.speed;
+  assert(picnicSecs >= 35, `picnic ~${picnicSecs.toFixed(0)}s >= 35s`);
   assert(T.CAR_PALETTES.length >= 6, '6 car colors');
   assert(T.FRIEND_NAMES.length >= 4, 'friend names');
   assert(T.ROAD_W > 100, 'road width');
   assert(T.HINT_AFTER > 0, 'HINT_AFTER positive');
+  assert(T.FRIEND_SPEED_MAX < 1, 'friends slower than player');
+  assert(T.FRIEND_SPEED_MIN < T.FRIEND_SPEED_MAX, 'friend speed range');
 }
 
 // =====================================================================
@@ -313,8 +322,11 @@ section('spawnFriends / spawnPickups');
   const fs = T.spawnFriends(3, rng);
   assertEq(fs.length, 3, '3 friends');
   assert(fs.every(f => f.name), 'names');
-  assert(fs.every(f => f.worldY > 0), 'worldY positive');
+  // Friends start at/near/behind the pack — not far ahead
+  assert(fs.every(f => f.worldY < 200), 'friends not far ahead at start');
   assert(fs.every(f => f.x >= T.ROAD_LEFT && f.x <= T.ROAD_RIGHT), 'on road');
+  assert(fs.every(f => f.speedMul < 1), 'friends slower than player');
+  assert(fs.every(f => f.speedMul >= T.FRIEND_SPEED_MIN - 0.01), 'speed mul floor');
 
   const fs2 = T.spawnFriends(3, mulberry32(42));
   assertEq(fs[0].name, fs2[0].name, 'deterministic friends');
@@ -324,6 +336,30 @@ section('spawnFriends / spawnPickups');
   assert(ps.every(p => !p.taken), 'not taken');
   assert(ps.some(p => p.kind === 'star'), 'has stars');
   assert(ps.every(p => p.worldY > 0), 'pickup worldY');
+}
+
+// =====================================================================
+section('computePlace / placeLabel — kid can win');
+{
+  const T = loadGame();
+  assertEq(T.placeLabel(1), '1st', '1st');
+  assertEq(T.placeLabel(2), '2nd', '2nd');
+  assertEq(T.placeLabel(3), '3rd', '3rd');
+  assertEq(T.placeLabel(4), '4th', '4th');
+  assertEq(T.placeLabel(11), '11th', '11th');
+  assertEq(T.placeLabel(21), '21st', '21st');
+
+  assertEq(T.computePlace(100, []), 1, 'alone is 1st');
+  assertEq(T.computePlace(100, [{ worldY: 50 }, { worldY: 80 }]), 1, 'ahead of both');
+  assertEq(T.computePlace(100, [{ worldY: 150 }]), 2, 'one ahead');
+  assertEq(T.computePlace(100, [{ worldY: 150 }, { worldY: 200 }]), 3, 'two ahead');
+
+  // Soft AI sim: friends behind → always 1st after a stretch of racing
+  T.enterPlay('picnic');
+  T.setRacing(true);
+  for (let i = 0; i < 120; i++) T.updatePlay(0.05);
+  assertEq(T.computePlace(T.distance(), T.friends()), 1, '1st after racing stretch');
+  assert(T.friends().every(f => f.worldY <= T.distance() + 50), 'friends not far ahead');
 }
 
 // =====================================================================
@@ -370,6 +406,11 @@ section('enterPlay + modes');
   assert(T.friends().length === 3, 'circuit 3 friends');
   assert(T.raceDistance() === T.MODES.circuit.distance, 'circuit dist');
 
+  T.enterPlay('picnic');
+  assert(T.friends().length === T.MODES.picnic.friends, 'picnic friends');
+  // Starting behind / near pack → player place is 1st at green light
+  assertEq(T.computePlace(0, T.friends()), 1, 'start in 1st');
+
   T.enterMenu();
   assertEq(T.state(), 'menu', 'menu state');
 }
@@ -414,6 +455,7 @@ section('updatePlay advances distance + finish');
   T.setDistance(T.raceDistance() + 1);
   T.updatePlay(0.016);
   assertEq(T.state(), 'win', 'wins after finish distance');
+  assertEq(T.sessionPlace(), 1, 'finish as 1st');
 }
 
 // =====================================================================
@@ -494,6 +536,9 @@ section('save helpers');
   const r0 = T.save.races | 0;
   T.recordRace();
   assertEq(T.save.races, r0 + 1, 'recordRace');
+  const w0 = T.save.wins | 0;
+  T.recordWin();
+  assertEq(T.save.wins, w0 + 1, 'recordWin');
 }
 
 // =====================================================================
@@ -506,6 +551,8 @@ section('kid-safe design markers');
   assert(html.includes('never a fail') || read('README.md').includes('fail'), 'fail-safe messaging');
   assert(game.includes('softCollide') || game.includes('soft'), 'soft collision present');
   assert(game.includes('isOffRoad'), 'off-road soft handling');
+  assert(game.includes('You win') || html.includes('You win'), 'win celebration copy');
+  assert(game.includes('computePlace') || game.includes('sessionPlace'), 'place tracking');
 }
 
 // =====================================================================

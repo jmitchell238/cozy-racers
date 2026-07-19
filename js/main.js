@@ -37,9 +37,9 @@ function setScreen(name) {
 
 function updateMenuStats() {
   const t = document.getElementById('statStars');
-  const c = document.getElementById('statRaces');
+  const c = document.getElementById('statWins');
   if (t) t.textContent = String(save.stars | 0);
-  if (c) c.textContent = String(save.races | 0);
+  if (c) c.textContent = String(save.wins | 0);
   const muteBtn = document.getElementById('muteBtn');
   if (muteBtn) muteBtn.textContent = save.muted ? '🔇 Sound off' : '🔊 Sound on';
   const motionBtn = document.getElementById('motionBtn');
@@ -70,8 +70,15 @@ function showPlay() {
 
 function showWin() {
   setScreen('win');
+  const place = sessionPlace || 1;
+  const label = placeLabel(place);
+  const title = document.getElementById('winTitle');
+  const banner = document.getElementById('winBanner');
+  const placeEl = document.getElementById('winPlace');
+  if (title) title.textContent = place === 1 ? 'You win!' : 'Nice race!';
+  if (banner) banner.textContent = place === 1 ? '🏆 ' + label + ' place!' : '🏁 ' + label + ' place';
+  if (placeEl) placeEl.textContent = label;
   document.getElementById('winStars').textContent = String(sessionStars);
-  document.getElementById('winAll').textContent = String(save.stars | 0);
   if (window.__pendingReload) {
     window.__pendingReload = false;
     window.__reloaded = true;

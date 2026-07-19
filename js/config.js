@@ -1,7 +1,7 @@
 'use strict';
 
 // Cozy Racers — Keep CACHE in sw.js in sync: 'cozy-racers-' + GAME_VERSION
-const GAME_VERSION = '1.2.000';
+const GAME_VERSION = '1.3.000';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Cozy Racers';
 
@@ -12,22 +12,30 @@ const SAVE_KEY = 'cozy-racers-save-v1';
 /**
  * Modes: race distance (world units), friend count, base speed, star goal.
  * Free = endless (distance 0, starGoal 0).
- * Distances tuned for ~40–90s races at listed speeds so kids feel a real race.
- * Friend AI is intentionally slower so the player can always take 1st.
+ * Player is slightly faster than friends so they can pass the pack and win.
  */
 const MODES = {
-  free:    { id: 'free',    name: 'Free Cruise',  tagline: 'forever · stars', distance: 0,     friends: 1, speed: 165, starGoal: 0  },
-  picnic:  { id: 'picnic',  name: 'Picnic Path',  tagline: 'cozy race',       distance: 7200,  friends: 2, speed: 160, starGoal: 14 },
-  meadow:  { id: 'meadow',  name: 'Meadow Dash',  tagline: 'medium race',     distance: 11000, friends: 2, speed: 170, starGoal: 20 },
-  circuit: { id: 'circuit', name: 'Star Circuit', tagline: 'long race',       distance: 16000, friends: 3, speed: 180, starGoal: 28 },
+  free:    { id: 'free',    name: 'Free Cruise',  tagline: 'forever · stars', distance: 0,     friends: 2, speed: 165, starGoal: 0  },
+  picnic:  { id: 'picnic',  name: 'Picnic Path',  tagline: 'cozy race',       distance: 7200,  friends: 3, speed: 160, starGoal: 14 },
+  meadow:  { id: 'meadow',  name: 'Meadow Dash',  tagline: 'medium race',     distance: 11000, friends: 3, speed: 170, starGoal: 20 },
+  circuit: { id: 'circuit', name: 'Star Circuit', tagline: 'long race',       distance: 16000, friends: 4, speed: 180, starGoal: 28 },
 };
 const MODE_ORDER = ['free', 'picnic', 'meadow', 'circuit'];
 
-/** Friends cruise slower than the player so kids stay in the lead */
-const FRIEND_SPEED_MIN = 0.52;
-const FRIEND_SPEED_MAX = 0.72;
-/** Soft cap: friends never pull more than this far ahead of the player */
-const FRIEND_LEAD_CAP = 40;
+/**
+ * Player cruise = mode.speed * PLAYER_SPEED_MUL (a little faster than the pack).
+ * Friends cruise at mode.speed * [FRIEND_SPEED_MIN..MAX] — start ahead, you pass them.
+ */
+const PLAYER_SPEED_MUL = 1.10;
+const FRIEND_SPEED_MIN = 0.88;
+const FRIEND_SPEED_MAX = 0.97;
+
+/** Temporary slow from bump / oil (seconds, speed multiplier) */
+const SLOW_DURATION = 1.15;
+const SLOW_MUL = 0.55;
+/** Temporary nitro boost (seconds, speed multiplier) */
+const BOOST_DURATION = 1.15;
+const BOOST_MUL = 1.55;
 
 const ROAD_W = 210;
 const ROAD_LEFT = (W - ROAD_W) / 2;
@@ -40,6 +48,7 @@ const PLAYER_H = 88;
 const CAR_R = 28; // soft collision radius
 
 const STAR_R = 16;
+const PICKUP_R = 20;
 const HINT_AFTER = 6;
 
 /** Seconds per countdown beat (3 · 2 · 1 · GO!) before the race rolls */
@@ -63,3 +72,11 @@ const CAR_PALETTES = [
 ];
 
 const FRIEND_NAMES = ['Pip', 'Momo', 'Bop', 'Lulu', 'Nori', 'Zee'];
+
+/** Weighted pickups/hazards along the track */
+const PICKUP_KINDS = [
+  'star', 'star', 'star', 'star',
+  'nitro', 'nitro', 'nitro',
+  'oil', 'oil',
+  'flower',
+];

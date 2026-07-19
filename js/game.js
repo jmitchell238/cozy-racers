@@ -25,17 +25,25 @@ let steerTarget = ROAD_CENTER;
 let playerVx = 0;
 /** Current forward speed */
 let speed = 150;
-/** Base mode speed */
+/** Mode base speed (friends use this; player cruise is higher) */
 let baseSpeed = 150;
+/** Player steady cruise speed (slightly above friends) */
+let playerCruise = 165;
 /** Palette index for player car */
 let playerPalette = 0;
 /** Wiggle / bounce visual */
 let playerBob = 0;
 let shake = 0;
+/** Temporary slowdown timer (bump / oil) */
+let slowTimer = 0;
+/** Temporary nitro boost timer */
+let boostTimer = 0;
+/** Cooldown so one bump doesn't re-trigger every frame */
+let bumpCooldown = 0;
 
-/** @type {{ worldY: number, x: number, vx: number, palette: number, name: string, bob: number }[]} */
+/** @type {{ worldY: number, x: number, vx: number, palette: number, name: string, bob: number, cruise: number }[]} */
 let friends = [];
-/** @type {{ worldY: number, x: number, kind: 'star'|'flower'|'balloon', taken: boolean, phase: number }[]} */
+/** @type {{ worldY: number, x: number, kind: string, taken: boolean, phase: number }[]} */
 let pickups = [];
 
 let skyPhase = 0;
@@ -202,25 +210,32 @@ function isCountdownDone(t, beatLen, beats) {
 }
 
 /**
- * Friend speed multiplier — always slower than the player so kids win.
+ * Friend cruise speed multiplier vs mode baseSpeed (always under player cruise).
  * @param {() => number} [rng]
  */
 function friendSpeedMul(rng) {
   const r = rng || Math.random;
-  const lo = typeof FRIEND_SPEED_MIN === 'number' ? FRIEND_SPEED_MIN : 0.52;
-  const hi = typeof FRIEND_SPEED_MAX === 'number' ? FRIEND_SPEED_MAX : 0.72;
+  const lo = typeof FRIEND_SPEED_MIN === 'number' ? FRIEND_SPEED_MIN : 0.88;
+  const hi = typeof FRIEND_SPEED_MAX === 'number' ? FRIEND_SPEED_MAX : 0.97;
   return lo + r() * Math.max(0, hi - lo);
 }
 
 /**
  * Build friend racers for a mode.
- * Spawn beside / slightly behind the player so they don't start in the lead.
+ * Spawn AHEAD of the player so there is a pack to chase and pass.
  * @param {number} count
+ * @param {number} [modeBase]
  * @param {() => number} [rng]
  */
-function spawnFriends(count, rng) {
+function spawnFriends(count, modeBase, rng) {
+  // Allow spawnFriends(n, rng) legacy form
+  if (typeof modeBase === 'function') {
+    rng = modeBase;
+    modeBase = undefined;
+  }
   const r = rng || Math.random;
   const n = Math.max(0, count | 0);
+  const base = (typeof modeBase === 'number' && modeBase > 0) ? modeBase : 160;
   const pals = shuffleWith(FRIEND_NAMES.slice(), r);
   const palsIdx = shuffleWith(
     CAR_PALETTES.map((_, i) => i).filter(i => i !== (save.carIndex | 0)),
@@ -232,8 +247,9 @@ function spawnFriends(count, rng) {
     const t = r();
     const pal = palsIdx[i % palsIdx.length] | 0;
     const style = 1 + ((i + Math.floor(r() * 3)) % 3);
-    // Start near the pack: a little behind or barely ahead (then fall back)
-    const startY = -40 - i * 90 - r() * 50;
+    const mul = friendSpeedMul(r);
+    // Staggered grid ahead of the start line — player starts last
+    const startY = 140 + i * 160 + r() * 70;
     out.push({
       worldY: startY,
       x: lerp(bounds.min, bounds.max, t),
@@ -242,10 +258,43 @@ function spawnFriends(count, rng) {
       style,
       name: pals[i % pals.length],
       bob: r() * Math.PI * 2,
-      speedMul: friendSpeedMul(r),
+      speedMul: mul,
+      cruise: base * mul,
     });
   }
   return out;
+}
+
+/**
+ * Apply a temporary slow (bump or oil). Pure helper for duration/mul.
+ * @param {number} currentSlow
+ * @param {number} [duration]
+ */
+function applySlowDuration(currentSlow, duration) {
+  const d = duration != null ? duration : SLOW_DURATION;
+  return Math.max(currentSlow || 0, d);
+}
+
+/**
+ * Apply a temporary nitro boost. Boost cancels active slow.
+ * @param {number} [duration]
+ */
+function applyBoostDuration(duration) {
+  return duration != null ? duration : BOOST_DURATION;
+}
+
+/**
+ * Resolve target cruise speed from status effects.
+ * @param {number} cruise - player cruise
+ * @param {number} slowT
+ * @param {number} boostT
+ * @param {boolean} offRoad
+ */
+function resolveTargetSpeed(cruise, slowT, boostT, offRoad) {
+  if (boostT > 0) return cruise * BOOST_MUL;
+  if (slowT > 0) return cruise * SLOW_MUL;
+  if (offRoad) return cruise * 0.72;
+  return cruise;
 }
 
 /**
@@ -279,7 +328,7 @@ function placeLabel(place) {
 }
 
 /**
- * Scatter pickups along the track.
+ * Scatter pickups + hazards along the track.
  * @param {number} totalDist - race length (or a window for free)
  * @param {number} count
  * @param {() => number} [rng]
@@ -290,12 +339,15 @@ function spawnPickups(totalDist, count, rng) {
   const bounds = roadBounds(24);
   const span = Math.max(800, totalDist || 2400);
   const out = [];
-  const kinds = ['star', 'star', 'star', 'flower', 'star', 'balloon'];
+  const kinds = (typeof PICKUP_KINDS !== 'undefined' && PICKUP_KINDS.length)
+    ? PICKUP_KINDS
+    : ['star', 'star', 'nitro', 'oil', 'star', 'flower'];
   for (let i = 0; i < n; i++) {
     out.push({
-      worldY: 120 + (span * (i + 0.5) / n) + (r() - 0.5) * 40,
+      // First items a bit ahead of start so you chase into the pack
+      worldY: 200 + (span * (i + 0.35) / n) + (r() - 0.5) * 50,
       x: lerp(bounds.min, bounds.max, r()),
-      kind: kinds[i % kinds.length],
+      kind: kinds[Math.floor(r() * kinds.length)],
       taken: false,
       phase: r() * Math.PI * 2,
     });
@@ -304,15 +356,14 @@ function spawnPickups(totalDist, count, rng) {
 }
 
 /**
- * Apply collection for one pickup if overlapping player.
- * Pure: returns new state flags without side effects.
- * @returns {'star'|'flower'|'balloon'|null}
+ * Hit-test one pickup vs player. Pure.
+ * @returns {string|null} kind
  */
 function tryCollectPickup(pickup, px, py, camDistance) {
   if (!pickup || pickup.taken) return null;
   const sy = worldToScreenY(pickup.worldY, camDistance);
   if (sy < -40 || sy > H + 40) return null;
-  const r = pickup.kind === 'balloon' ? 22 : STAR_R + 10;
+  const r = (pickup.kind === 'oil' || pickup.kind === 'nitro') ? PICKUP_R + 6 : STAR_R + 10;
   if (!circleHit(px, py, pickup.x, sy, r + CAR_R * 0.55)) return null;
   return pickup.kind;
 }
@@ -364,6 +415,8 @@ function enterPlay(forceMode) {
   raceDistance = m.distance | 0;
   starGoal = m.starGoal | 0;
   baseSpeed = m.speed || 150;
+  const pMul = typeof PLAYER_SPEED_MUL === 'number' ? PLAYER_SPEED_MUL : 1.1;
+  playerCruise = baseSpeed * pMul;
   // Hold still until countdown completes
   speed = 0;
   racing = false;
@@ -376,6 +429,9 @@ function enterPlay(forceMode) {
   playerVx = 0;
   playerBob = 0;
   shake = 0;
+  slowTimer = 0;
+  boostTimer = 0;
+  bumpCooldown = 0;
   playerPalette = save.carIndex | 0;
   winFlash = 0;
   hintTimer = 0;
@@ -384,12 +440,13 @@ function enterPlay(forceMode) {
   steering = false;
 
   const span = raceDistance > 0 ? raceDistance : 2800;
-  const starCount = raceDistance > 0
-    ? Math.max(starGoal + 4, 12)
-    : 24;
-  friends = spawnFriends(m.friends | 0);
-  pickups = spawnPickups(span, starCount);
-  sessionPlace = 1;
+  const itemCount = raceDistance > 0
+    ? Math.max(starGoal + 8, 18)
+    : 28;
+  friends = spawnFriends(m.friends | 0, baseSpeed);
+  pickups = spawnPickups(span, itemCount);
+  // Start at the back of the pack
+  sessionPlace = computePlace(0, friends);
   clearParticles();
 }
 
@@ -397,18 +454,21 @@ function enterWin() {
   state = 'win';
   winFlash = 1.6;
   steering = false;
-  // Final place at the line — soft AI keeps this at 1st for kids
   sessionPlace = computePlace(distance, friends);
-  // Kid-safe: never show worse than 1st on a completed race finish
-  if (sessionPlace > 1) sessionPlace = 1;
   sfxFinish();
   spawnBurst(W / 2, H * 0.35, '#FFD54F', 30);
   spawnBurst(W / 2, H * 0.4, '#EF5350', 16);
-  spawnPraise(W / 2, H * 0.22, placeLabel(sessionPlace) + '!');
-  spawnPraise(W / 2, H * 0.32, 'You win!');
+  const pl = placeLabel(sessionPlace);
+  spawnPraise(W / 2, H * 0.22, pl + '!');
+  if (sessionPlace === 1) {
+    spawnPraise(W / 2, H * 0.32, 'You win!');
+    speakCheer('You win! First place!');
+    recordWin();
+  } else {
+    spawnPraise(W / 2, H * 0.32, 'Nice race!');
+    speakCheer('Nice race! You finished ' + pl + '!');
+  }
   recordRace();
-  if (sessionPlace === 1) recordWin();
-  speakCheer('You win! First place!');
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +485,35 @@ function setSteerX(x) {
 
 function clearSteer() {
   steering = false;
+}
+
+/**
+ * Apply temporary slow from bump or oil.
+ */
+function triggerSlow(source) {
+  slowTimer = applySlowDuration(slowTimer, SLOW_DURATION);
+  // Nitro is cancelled by a hit
+  if (boostTimer > 0) boostTimer = 0;
+  shake = 0.18;
+  if (source === 'oil') {
+    sfxOil();
+    spawnPraise(playerX, PLAYER_Y - 40, 'Oil!');
+  } else {
+    sfxBump();
+    spawnPraise(playerX, PLAYER_Y - 40, 'Whoops!');
+  }
+}
+
+/**
+ * Apply temporary nitro boost.
+ */
+function triggerBoost() {
+  boostTimer = applyBoostDuration(BOOST_DURATION);
+  slowTimer = 0;
+  sfxNitro();
+  spawnPraise(playerX, PLAYER_Y - 42, 'NITRO!');
+  spawnBurst(playerX, PLAYER_Y, '#00E5FF', 16);
+  spawnBurst(playerX, PLAYER_Y + 10, '#FFEA00', 10);
 }
 
 /**
@@ -449,11 +538,12 @@ function collectAt(i) {
     sfxFlower();
     spawnBurst(p.x, sy, '#F48FB1', 10);
     spawnPraise(p.x, sy - 18, 'Pretty!');
-  } else if (kind === 'balloon') {
-    sfxStar();
-    speed = Math.min(baseSpeed * 1.35, speed + 40);
-    spawnBurst(p.x, sy, '#42A5F5', 14);
-    spawnPraise(p.x, sy - 18, 'Boost!');
+  } else if (kind === 'nitro' || kind === 'balloon') {
+    triggerBoost();
+    spawnBurst(p.x, sy, '#00E5FF', 14);
+  } else if (kind === 'oil') {
+    triggerSlow('oil');
+    spawnBurst(p.x, sy, '#37474F', 10);
   }
   return true;
 }
@@ -486,7 +576,7 @@ function updatePlay(dt) {
 
     if (label === null) {
       racing = true;
-      speed = baseSpeed;
+      speed = playerCruise;
       hintTimer = 0;
       showHint = false;
     }
@@ -496,6 +586,9 @@ function updatePlay(dt) {
 
   engineTimer += dt;
   hintTimer += dt;
+  if (slowTimer > 0) slowTimer = Math.max(0, slowTimer - dt);
+  if (boostTimer > 0) boostTimer = Math.max(0, boostTimer - dt);
+  if (bumpCooldown > 0) bumpCooldown = Math.max(0, bumpCooldown - dt);
 
   // Soft engine putter
   if (engineTimer > 0.35 && !save.reducedMotion) {
@@ -503,64 +596,60 @@ function updatePlay(dt) {
     sfxEngineTick();
   }
 
-  // Speed: soft off-road slowdown, ease back to base
+  // Speed from cruise + nitro / oil / off-road
   const off = isOffRoad(playerX);
-  const targetSpd = off ? baseSpeed * 0.72 : baseSpeed;
-  speed = lerp(speed, targetSpd, 1 - Math.pow(0.001, dt));
-  // Balloon boost decay
-  if (speed > baseSpeed) speed = lerp(speed, baseSpeed, 1 - Math.pow(0.05, dt));
+  const targetSpd = resolveTargetSpeed(playerCruise, slowTimer, boostTimer, off);
+  // Snap toward target (boost hits hard, slow hits hard)
+  const ease = (boostTimer > 0 || slowTimer > 0) ? 0.0001 : 0.001;
+  speed = lerp(speed, targetSpd, 1 - Math.pow(ease, dt));
 
   distance += speed * dt;
 
   // Steering
   if (!steering) {
-    // Gentle auto-center toward road middle when not touching — still free
     steerTarget = lerp(steerTarget, ROAD_CENTER, 1 - Math.pow(0.15, dt));
   }
   const stepped = stepSteer(playerX, playerVx, steerTarget, dt);
   playerX = stepped.x;
   playerVx = stepped.vx;
 
-  // Exhaust trail
-  if (!save.reducedMotion && Math.random() < 0.4) {
-    spawnTrail(playerX, PLAYER_Y + 24, 'rgba(255,255,255,0.35)');
+  // Exhaust / nitro trail
+  if (!save.reducedMotion) {
+    if (boostTimer > 0) {
+      spawnTrail(playerX, PLAYER_Y + 24, 'rgba(0,229,255,0.7)');
+      spawnTrail(playerX + 6, PLAYER_Y + 20, 'rgba(255,234,0,0.55)');
+    } else if (Math.random() < 0.4) {
+      spawnTrail(playerX, PLAYER_Y + 24, 'rgba(255,255,255,0.35)');
+    }
   }
 
-  // Friends AI — slower than player, never steal the lead for long
+  // Friends AI — independent cruise (not tied to player speed)
   const b = roadBounds(22);
-  const leadCap = typeof FRIEND_LEAD_CAP === 'number' ? FRIEND_LEAD_CAP : 40;
   for (const f of friends) {
     f.bob += dt * 8;
-    // Base cruise: always under player pace
-    let mul = f.speedMul;
-    // If somehow ahead, ease off so the kid reclaims 1st
-    if (f.worldY > distance - 10) mul *= 0.55;
-    if (f.worldY > distance + leadCap * 0.5) mul *= 0.35;
-    f.worldY += speed * mul * dt;
-    // Hard soft-cap: cannot stay more than leadCap ahead of player
-    if (f.worldY > distance + leadCap) {
-      f.worldY = distance + leadCap * 0.6;
-    }
-    // Near the finish, peel back so the player crosses first
-    if (raceDistance > 0 && f.worldY > raceDistance - 180) {
-      f.worldY = Math.min(f.worldY, Math.min(distance - 20, raceDistance - 120));
-    }
+    const cruise = f.cruise != null ? f.cruise : baseSpeed * (f.speedMul || 0.9);
+    f.worldY += cruise * dt;
     // Gentle lateral wander
     f.vx += (Math.sin(f.bob * 0.35 + f.worldY * 0.01) * 40 - f.vx) * dt * 2;
     f.x += f.vx * dt;
     f.x = clamp(f.x, b.min, b.max);
 
-    // Soft collide with player (screen space)
+    // Soft collide with player — bump = temporary slow for the kid
     const fy = worldToScreenY(f.worldY, distance);
     if (fy > -80 && fy < H + 80) {
       const hit = softCollide(playerX, PLAYER_Y, f.x, fy, CAR_R * 0.85);
       if (hit.hit) {
         playerX = hit.ax;
         f.x = clamp(hit.bx, b.min, b.max);
-        playerVx *= 0.5;
-        f.vx *= -0.4;
-        shake = 0.12;
-        sfxBump();
+        playerVx *= 0.45;
+        f.vx *= -0.5;
+        // Nudge friend forward a hair so pass feels fair
+        if (f.worldY < distance) f.worldY -= 8;
+        else f.worldY += 6;
+        if (bumpCooldown <= 0) {
+          triggerSlow('bump');
+          bumpCooldown = 0.55;
+        }
       }
     }
   }
@@ -581,7 +670,7 @@ function updatePlay(dt) {
     }
   }
 
-  // Pickups
+  // Pickups + hazards
   for (let i = 0; i < pickups.length; i++) {
     const p = pickups[i];
     if (p.taken) continue;
@@ -596,10 +685,10 @@ function updatePlay(dt) {
         p.taken = false;
         p.worldY = distance + 600 + Math.random() * 900;
         p.x = lerp(b.min, b.max, Math.random());
-        p.kind = Math.random() < 0.7 ? 'star' : (Math.random() < 0.5 ? 'flower' : 'balloon');
+        const kinds = PICKUP_KINDS || ['star', 'nitro', 'oil'];
+        p.kind = kinds[Math.floor(Math.random() * kinds.length)];
       }
     }
-    // Recycle friends
     for (const f of friends) {
       if (f.worldY < distance - 200) {
         f.worldY = distance + 400 + Math.random() * 600;
@@ -803,11 +892,12 @@ function drawCar(ctx, x, y, paletteIndex, opts = {}) {
     ctx.restore();
   }
 
-  // Player halo
+  // Player halo (cyan when nitro)
   if (opts.isPlayer) {
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 2.5;
+    const boosted = typeof boostTimer === 'number' && boostTimer > 0;
+    ctx.strokeStyle = boosted ? 'rgba(0,229,255,0.85)' : 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = boosted ? 3.5 : 2.5;
     ctx.beginPath();
     ctx.ellipse(x, y + dy, w * 0.55, h * 0.48, 0, 0, Math.PI * 2);
     ctx.stroke();
@@ -903,18 +993,44 @@ function drawPickup(ctx, p) {
     ctx.beginPath();
     ctx.arc(0, 0, 4, 0, Math.PI * 2);
     ctx.fill();
+  } else if (p.kind === 'oil') {
+    const oil = (typeof getSprite === 'function') ? getSprite('oil') : null;
+    if (oil && oil.naturalWidth) {
+      ctx.drawImage(oil, -28, -24, 56, 48);
+    } else {
+      ctx.fillStyle = 'rgba(33,33,33,0.75)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 22, 14, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(80,80,80,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(-6, -2, 8, 5, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (p.kind === 'nitro' || p.kind === 'balloon') {
+    const nitro = (typeof getSprite === 'function') ? getSprite('nitro') : null;
+    if (nitro && nitro.naturalWidth) {
+      ctx.drawImage(nitro, -16, -24, 32, 48);
+    } else {
+      // Fallback nitro pill
+      ctx.fillStyle = '#00E5FF';
+      roundRect(ctx, -10, -20, 20, 36, 8);
+      ctx.fill();
+      ctx.fillStyle = '#FFEA00';
+      roundRect(ctx, -8, -18, 16, 10, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('N', 0, 2);
+    }
   } else {
-    // balloon
+    // legacy balloon
     ctx.fillStyle = '#42A5F5';
     ctx.beginPath();
     ctx.ellipse(0, -4, 11, 14, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, 10);
-    ctx.quadraticCurveTo(4, 18, 0, 24);
-    ctx.stroke();
   }
 
   ctx.restore();
@@ -970,6 +1086,22 @@ function drawHud(ctx) {
     ctx.fillText('Free cruise', W / 2, 42);
   }
   ctx.restore();
+
+  // Status chips: NITRO / SLOW
+  if (racing && (boostTimer > 0 || slowTimer > 0)) {
+    ctx.save();
+    const label = boostTimer > 0 ? '⚡ NITRO' : '💦 SLOW';
+    const col = boostTimer > 0 ? '#00E5FF' : '#90A4AE';
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    roundRect(ctx, W / 2 - 54, 72, 108, 28, 10);
+    ctx.fill();
+    ctx.fillStyle = col;
+    ctx.font = 'bold 14px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, W / 2, 86);
+    ctx.restore();
+  }
 
   if (showHint) {
     ctx.save();

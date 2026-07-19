@@ -31,6 +31,8 @@ const SPRITE_PATHS = {
   cone: 'assets/objects/cone.png',
   tires: 'assets/objects/tires.png',
   barrel: 'assets/objects/barrel_red.png',
+  oil: 'assets/objects/oil.png',
+  nitro: 'assets/objects/nitro.png',
 };
 
 /** @type {Record<string, HTMLImageElement>} */

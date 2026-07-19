@@ -80,8 +80,10 @@ function loadGame(opts = {}) {
       softCollide, circleHit, worldToScreenY, screenToWorldY, raceProgress, hasFinished,
       countdownLabel, isCountdownDone,
       friendSpeedMul, computePlace, placeLabel,
+      applySlowDuration, applyBoostDuration, resolveTargetSpeed,
       spawnFriends, spawnPickups, tryCollectPickup, steerFromPointer, stepSteer,
       enterPlay, enterMenu, enterWin, updatePlay, collectAt, setSteerX, clearSteer,
+      triggerSlow, triggerBoost,
       state: () => state,
       modeId: () => modeId,
       distance: () => distance,
@@ -91,14 +93,20 @@ function loadGame(opts = {}) {
       setSessionStars: (n) => { sessionStars = n; },
       sessionPlace: () => sessionPlace,
       setSessionPlace: (n) => { sessionPlace = n; },
-      FRIEND_SPEED_MIN, FRIEND_SPEED_MAX,
+      FRIEND_SPEED_MIN, FRIEND_SPEED_MAX, PLAYER_SPEED_MUL,
+      SLOW_DURATION, SLOW_MUL, BOOST_DURATION, BOOST_MUL,
+      playerCruise: () => playerCruise,
+      slowTimer: () => slowTimer,
+      boostTimer: () => boostTimer,
+      setSlowTimer: (t) => { slowTimer = t; },
+      setBoostTimer: (t) => { boostTimer = t; },
       playerX: () => playerX,
       setPlayerX: (x) => { playerX = x; },
       steerTarget: () => steerTarget,
       playerVx: () => playerVx,
       speed: () => speed,
       racing: () => racing,
-      setRacing: (v) => { racing = !!v; if (v) { speed = baseSpeed; countdownT = COUNTDOWN_BEAT * COUNTDOWN_BEATS; } },
+      setRacing: (v) => { racing = !!v; if (v) { speed = playerCruise || baseSpeed; countdownT = COUNTDOWN_BEAT * COUNTDOWN_BEATS; } },
       countdownT: () => countdownT,
       friends: () => friends,
       pickups: () => pickups,
@@ -171,6 +179,8 @@ section('PWA shell files');
     'assets/cars/car_red_1.png', 'assets/cars/car_blue_1.png',
     'assets/tiles/road_strip.png', 'assets/tiles/grass.png',
     'assets/objects/tree_small.png',
+    'assets/objects/oil.png',
+    'assets/objects/nitro.png',
   ]) {
     assert(exists(f), `exists ${f}`);
   }
@@ -229,8 +239,11 @@ section('config integrity');
   assert(T.FRIEND_NAMES.length >= 4, 'friend names');
   assert(T.ROAD_W > 100, 'road width');
   assert(T.HINT_AFTER > 0, 'HINT_AFTER positive');
-  assert(T.FRIEND_SPEED_MAX < 1, 'friends slower than player');
+  assert(T.FRIEND_SPEED_MAX < T.PLAYER_SPEED_MUL, 'friends slower than player cruise mul');
   assert(T.FRIEND_SPEED_MIN < T.FRIEND_SPEED_MAX, 'friend speed range');
+  assert(T.PLAYER_SPEED_MUL > 1, 'player slightly faster');
+  assert(T.SLOW_MUL < 1 && T.BOOST_MUL > 1, 'slow/boost muls');
+  assert(T.SLOW_DURATION > 0 && T.BOOST_DURATION > 0, 'status durations');
 }
 
 // =====================================================================
@@ -319,27 +332,29 @@ section('spawnFriends / spawnPickups');
 {
   const T = loadGame();
   const rng = mulberry32(42);
-  const fs = T.spawnFriends(3, rng);
+  const fs = T.spawnFriends(3, 160, rng);
   assertEq(fs.length, 3, '3 friends');
   assert(fs.every(f => f.name), 'names');
-  // Friends start at/near/behind the pack — not far ahead
-  assert(fs.every(f => f.worldY < 200), 'friends not far ahead at start');
+  // Friends start AHEAD so there is a pack to pass
+  assert(fs.every(f => f.worldY > 50), 'friends start ahead of start line');
   assert(fs.every(f => f.x >= T.ROAD_LEFT && f.x <= T.ROAD_RIGHT), 'on road');
-  assert(fs.every(f => f.speedMul < 1), 'friends slower than player');
+  assert(fs.every(f => f.speedMul < T.PLAYER_SPEED_MUL), 'friends slower than player mul');
   assert(fs.every(f => f.speedMul >= T.FRIEND_SPEED_MIN - 0.01), 'speed mul floor');
+  assert(fs.every(f => f.cruise > 0), 'cruise speed set');
 
-  const fs2 = T.spawnFriends(3, mulberry32(42));
+  const fs2 = T.spawnFriends(3, 160, mulberry32(42));
   assertEq(fs[0].name, fs2[0].name, 'deterministic friends');
 
-  const ps = T.spawnPickups(1400, 10, mulberry32(7));
-  assertEq(ps.length, 10, '10 pickups');
+  const ps = T.spawnPickups(1400, 20, mulberry32(7));
+  assertEq(ps.length, 20, '20 pickups');
   assert(ps.every(p => !p.taken), 'not taken');
   assert(ps.some(p => p.kind === 'star'), 'has stars');
+  assert(ps.some(p => p.kind === 'nitro' || p.kind === 'oil'), 'has nitro or oil');
   assert(ps.every(p => p.worldY > 0), 'pickup worldY');
 }
 
 // =====================================================================
-section('computePlace / placeLabel — kid can win');
+section('computePlace / placeLabel + pass race');
 {
   const T = loadGame();
   assertEq(T.placeLabel(1), '1st', '1st');
@@ -354,12 +369,48 @@ section('computePlace / placeLabel — kid can win');
   assertEq(T.computePlace(100, [{ worldY: 150 }]), 2, 'one ahead');
   assertEq(T.computePlace(100, [{ worldY: 150 }, { worldY: 200 }]), 3, 'two ahead');
 
-  // Soft AI sim: friends behind → always 1st after a stretch of racing
+  // Start last — with slower/frozen pack ahead, player cruise takes 1st
+  T.enterPlay('picnic');
+  const startPlace = T.sessionPlace();
+  assert(startPlace > 1, 'start not first');
+  T.setRacing(true);
+  T.pickups().forEach(p => { p.taken = true; });
+  const b = T.roadBounds(28);
+  T.friends().forEach((f, i) => {
+    f.worldY = 300 + i * 200;
+    f.cruise = 0; // hold still so pass is unambiguous
+    f.x = i % 2 === 0 ? b.min + 6 : b.max - 6;
+    f.vx = 0;
+  });
+  for (let i = 0; i < 120; i++) T.updatePlay(0.05);
+  const endPlace = T.computePlace(T.distance(), T.friends());
+  assertEq(endPlace, 1, 'can take 1st by passing');
+  assert(endPlace < startPlace, 'place improved');
+  // Speed edge: player cruise > friend mul * base
+  assert(T.playerCruise() > T.MODES.picnic.speed * T.FRIEND_SPEED_MAX, 'player faster than pack');
+}
+
+// =====================================================================
+section('slow / boost status helpers');
+{
+  const T = loadGame();
+  assert(T.applySlowDuration(0) >= T.SLOW_DURATION - 0.01, 'apply slow');
+  assert(T.applySlowDuration(2) >= 2, 'slow keeps longer');
+  assertEq(T.applyBoostDuration(), T.BOOST_DURATION, 'boost duration');
+  assertClose(T.resolveTargetSpeed(100, 0, 0, false), 100, 0.01, 'cruise');
+  assertClose(T.resolveTargetSpeed(100, 1, 0, false), 100 * T.SLOW_MUL, 0.01, 'slowed');
+  assertClose(T.resolveTargetSpeed(100, 0, 1, false), 100 * T.BOOST_MUL, 0.01, 'boosted');
+  assertClose(T.resolveTargetSpeed(100, 1, 1, false), 100 * T.BOOST_MUL, 0.01, 'boost beats slow');
+  assertClose(T.resolveTargetSpeed(100, 0, 0, true), 72, 0.01, 'offroad');
+
   T.enterPlay('picnic');
   T.setRacing(true);
-  for (let i = 0; i < 120; i++) T.updatePlay(0.05);
-  assertEq(T.computePlace(T.distance(), T.friends()), 1, '1st after racing stretch');
-  assert(T.friends().every(f => f.worldY <= T.distance() + 50), 'friends not far ahead');
+  T.triggerBoost();
+  assert(T.boostTimer() > 0, 'boost active');
+  assertEq(T.slowTimer(), 0, 'boost clears slow');
+  T.triggerSlow('oil');
+  assert(T.slowTimer() > 0, 'slow active');
+  assertEq(T.boostTimer(), 0, 'slow clears boost');
 }
 
 // =====================================================================
@@ -400,16 +451,17 @@ section('enterPlay + modes');
 
   T.enterPlay('free');
   assertEq(T.raceDistance(), 0, 'free endless');
-  assert(T.friends().length === 1, 'free 1 friend');
+  assertEq(T.friends().length, T.MODES.free.friends, 'free friends');
 
   T.enterPlay('circuit');
-  assert(T.friends().length === 3, 'circuit 3 friends');
+  assertEq(T.friends().length, T.MODES.circuit.friends, 'circuit friends');
   assert(T.raceDistance() === T.MODES.circuit.distance, 'circuit dist');
 
   T.enterPlay('picnic');
   assert(T.friends().length === T.MODES.picnic.friends, 'picnic friends');
-  // Starting behind / near pack → player place is 1st at green light
-  assertEq(T.computePlace(0, T.friends()), 1, 'start in 1st');
+  // Start at the back of the pack
+  assert(T.computePlace(0, T.friends()) > 1, 'start not 1st');
+  assert(T.playerCruise() > T.MODES.picnic.speed, 'player cruise above mode base');
 
   T.enterMenu();
   assertEq(T.state(), 'menu', 'menu state');
@@ -451,11 +503,13 @@ section('updatePlay advances distance + finish');
   for (let i = 0; i < 10; i++) T.updatePlay(0.05);
   assert(T.distance() > d0, 'distance advances');
 
-  // Force finish
+  // Force finish (place is honest based on friends)
   T.setDistance(T.raceDistance() + 1);
+  // Pull friends behind so finish is 1st
+  T.friends().forEach(f => { f.worldY = T.distance() - 100; });
   T.updatePlay(0.016);
   assertEq(T.state(), 'win', 'wins after finish distance');
-  assertEq(T.sessionPlace(), 1, 'finish as 1st');
+  assertEq(T.sessionPlace(), 1, 'finish as 1st when ahead');
 }
 
 // =====================================================================

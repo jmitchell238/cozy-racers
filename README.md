@@ -12,25 +12,24 @@ Part of [Arcade Hub](https://jmitchell238.github.io/arcade-hub/).
 
 | Mode | Track | Friends | Notes |
 |------|-------|---------|-------|
-| Free Cruise | Endless | 1 | Collect stars forever |
-| Picnic Path | ~45s | 2 | Cozy first race — you win 1st |
-| Meadow Dash | ~60s | 2 | Medium race |
-| Star Circuit | ~90s | 3 | Longer race, more stars |
+| Free Cruise | Endless | 2 | Collect stars forever |
+| Picnic Path | ~45s | 3 | Start last, pass friends |
+| Meadow Dash | ~60s | 3 | Medium race |
+| Star Circuit | ~90s | 4 | Longer race, more stars |
 
-Friend AI is intentionally slower so kids stay in **1st place**.
+You start at the **back**. Your kart is a bit faster so you can pass everyone. **Nitro** speeds you up; **oil** and **bumps** slow you down briefly.
 
 ## Features
 
-- **Countdown** (3 · 2 · 1 · GO!) before the race rolls — line up while you wait
-- **Drag** left/right (or ← → / A D) to steer
-- Auto-forward on Kenney asphalt through a grassy meadow
-- **Kenney Racing Pack** (CC0) cars, road tiles, trees
-- Collect **stars**, flowers, and boost balloons
-- Soft friend racers — bumps bounce gently, no knock-outs
-- Off-road only slows you; soft spring back — never a crash screen
-- Pick a kart color (Berry, Sky, Leaf, Honey, Shadow, Wave)
-- Sound mute + reduced motion
-- Installable PWA (offline after first visit)
+- **Countdown** (3 · 2 · 1 · GO!) — then chase the pack from the back
+- **Drag** left/right (or ← → / A D) to steer; your kart is a little faster
+- **Nitro** pills (cyan) = short speed boost
+- **Oil slicks** (Kenney) = temporary slowdown
+- **Bump** a friend = bounce + temporary slowdown
+- Collect stars along the way; place shows on the HUD
+- **Kenney Racing Pack** (CC0) cars, road, trees, oil
+- Never a fail screen — finish is always a celebration
+- Sound mute + reduced motion · installable PWA
 
 ## Assets
 

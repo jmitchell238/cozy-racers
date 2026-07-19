@@ -39,6 +39,19 @@ function sfxStar() {
 }
 function sfxBump() {
   tone({ freq: 140, dur: 0.08, type: 'sine', gain: 0.03, slide: -40 });
+  tone({ freq: 90, dur: 0.12, type: 'triangle', gain: 0.025, delay: 0.04, slide: -20 });
+}
+function sfxOil() {
+  tone({ freq: 180, dur: 0.14, type: 'sine', gain: 0.03, slide: -80 });
+  tone({ freq: 120, dur: 0.16, type: 'triangle', gain: 0.025, delay: 0.05, slide: -40 });
+}
+function sfxNitro() {
+  tone({ freq: 220, dur: 0.08, type: 'sawtooth', gain: 0.03, slide: 200 });
+  tone({ freq: 440, dur: 0.12, type: 'square', gain: 0.025, delay: 0.05, slide: 180 });
+  tone({ freq: 660, dur: 0.14, type: 'sine', gain: 0.03, delay: 0.1, slide: 100 });
+}
+function sfxSlow() {
+  tone({ freq: 200, dur: 0.1, type: 'sine', gain: 0.03, slide: -70 });
 }
 function sfxFlower() {
   tone({ freq: 520, dur: 0.07, type: 'sine', gain: 0.03, slide: 60 });

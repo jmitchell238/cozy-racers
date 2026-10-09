@@ -29,41 +29,16 @@ Every race starts with a 3-2-1 countdown, and you start in last place. Your kart
 - Calm motion tones the animation down.
 - Turn the sound off for quiet car rides.
 
+It can be installed as an app and works offline after the first visit.
+
 ## Art
 
 Cars, road, trees and oil slicks are from Kenney's [Racing Pack](https://kenney.nl/assets/racing-pack), which is CC0 (public domain). See `assets/CREDITS.md`.
 
-## Files
-
-| Path | Contents |
-|------|----------|
-| `index.html` | Page and menus |
-| `css/style.css` | Styles |
-| `js/config.js` | Version, modes, kart colors |
-| `js/game.js` | Race logic, drawing, pickups |
-| `js/main.js` | Input, screens, service worker registration |
-| `manifest.webmanifest`, `sw.js` | PWA |
-
-## Running locally
-
-```bash
-python3 -m http.server 8080
-```
-
-Then open http://localhost:8080. The service worker needs `localhost` or HTTPS.
-
-Plain HTML, CSS and canvas with no build step. Installable as a PWA.
-
-## Tests
-
-```bash
-node tests/run.mjs
-```
-
-## Versioning
-
-When you bump `GAME_VERSION` in `js/config.js`, set `CACHE` in `sw.js` to `'cozy-racers-' + GAME_VERSION`.
-
 ## License
 
 Personal project for the family.
+
+## Development
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for running it locally, tests and versioning, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organized.

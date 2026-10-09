@@ -1,52 +1,58 @@
 # Cozy Racers
 
-Steer a cute kart down a sunny meadow road — collect stars with soft friends, gentle bumps only, **zero fail.** Built for ages **4–6**.
+Drive a little kart down a sunny meadow road, collect stars and pass your friends. Bumps only slow you down, and every race ends with a celebration. Made for ages 4–6.
 
-**Play:** https://jmitchell238.github.io/cozy-racers/
-
-Part of [Arcade Hub](https://jmitchell238.github.io/arcade-hub/).
-
----
+Play at https://jmitchell238.github.io/cozy-racers/. It's one of the games in [Arcade Hub](https://jmitchell238.github.io/arcade-hub/).
 
 ## Modes
 
-| Mode | Track | Friends | Notes |
-|------|-------|---------|-------|
-| Free Cruise | Endless | 2 | Collect stars forever |
-| Picnic Path | ~45s | 3 | Start last, pass friends |
+| Mode | Length | Other karts | Notes |
+|------|--------|-------------|-------|
+| Free Cruise | Endless | 2 | Just collect stars |
+| Picnic Path | ~45s | 3 | Short race |
 | Meadow Dash | ~60s | 3 | Medium race |
-| Star Circuit | ~90s | 4 | Longer race, more stars |
+| Star Circuit | ~90s | 4 | Longer race with more stars |
 
-You start at the **back**. Your kart is a bit faster so you can pass everyone. **Nitro** speeds you up; **oil** and **bumps** slow you down briefly.
+Every race starts with a 3-2-1 countdown, and you start in last place. Your kart is a bit faster than the others, so you can always catch up.
 
-## Features
+## Controls and pickups
 
-- **Countdown** (3 · 2 · 1 · GO!) — then chase the pack from the back
-- **Drag** left/right (or ← → / A D) to steer; your kart is a little faster
-- **Nitro** pills (cyan) = short speed boost
-- **Oil slicks** (Kenney) = temporary slowdown
-- **Bump** a friend = bounce + temporary slowdown
-- Collect stars along the way; place shows on the HUD
-- **Kenney Racing Pack** (CC0) cars, road, trees, oil
-- Never a fail screen — finish is always a celebration
-- Sound mute + reduced motion · installable PWA
+- Drag left/right, or use ← → / A D, to steer
+- Nitro (cyan): a short speed boost
+- Oil slick: slows you down for a moment
+- Bumping another kart: you both bounce and slow down for a moment
+- Stars: collect them along the way. Your current place is shown on screen.
 
-## Assets
+## For parents
 
-[Kenney Racing Pack](https://kenney.nl/assets/racing-pack) — **CC0** public domain. See `assets/CREDITS.md`.
+- No lives, ads, accounts or fail screens. Finishing in any place gets a celebration.
+- Calm motion tones the animation down.
+- Turn the sound off for quiet car rides.
 
-## Stack
+## Art
 
-Static HTML / CSS / Canvas. No build step.
+Cars, road, trees and oil slicks are from Kenney's [Racing Pack](https://kenney.nl/assets/racing-pack), which is CC0 (public domain). See `assets/CREDITS.md`.
 
-| Path | Purpose |
-|------|---------|
-| `index.html` | Shell + menu chrome |
-| `css/style.css` | Layout / kid-friendly UI |
-| `js/config.js` | Version, modes, car palettes |
-| `js/game.js` | Race sim, drawing, pickups |
-| `js/main.js` | Input, screens, SW register |
-| `manifest.webmanifest` + `sw.js` | PWA |
+## Files
+
+| Path | Contents |
+|------|----------|
+| `index.html` | Page and menus |
+| `css/style.css` | Styles |
+| `js/config.js` | Version, modes, kart colors |
+| `js/game.js` | Race logic, drawing, pickups |
+| `js/main.js` | Input, screens, service worker registration |
+| `manifest.webmanifest`, `sw.js` | PWA |
+
+## Running locally
+
+```bash
+python3 -m http.server 8080
+```
+
+Then open http://localhost:8080. The service worker needs `localhost` or HTTPS.
+
+Plain HTML, CSS and canvas with no build step. Installable as a PWA.
 
 ## Tests
 
@@ -56,25 +62,8 @@ node tests/run.mjs
 
 ## Versioning
 
-- `GAME_VERSION` in `js/config.js` — `MAJOR.MINOR.PATCH` (patch zero-padded to 3 digits)
-- Keep `CACHE` in `sw.js` in sync: `'cozy-racers-' + GAME_VERSION`
-
-## Local preview
-
-```bash
-python3 -m http.server 8080
-# open http://localhost:8080
-```
-
-Service workers need **http://localhost** or **https**.
-
-## Parents
-
-- No lives, ads, accounts, or fail screens
-- Soft competition only — finish is always a celebration
-- Use **Calm motion** if animations are too busy
-- **Sound off** for quiet car rides
+When you bump `GAME_VERSION` in `js/config.js`, set `CACHE` in `sw.js` to `'cozy-racers-' + GAME_VERSION`.
 
 ## License
 
-Personal project for family Arcade Hub.
+Personal project for the family.

@@ -1,7 +1,7 @@
 'use strict';
 
 // Cozy Racers — Keep CACHE in sw.js in sync: 'cozy-racers-' + GAME_VERSION
-const GAME_VERSION = '1.3.000';
+const GAME_VERSION = '1.3.001';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Cozy Racers';
 
